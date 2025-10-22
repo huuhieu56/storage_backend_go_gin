@@ -1,0 +1,24 @@
+# Storage Backend
+storage-backend/.env
+storage-backend/storage-backend
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Data
+/srv/lms/
+/file_uploads/
+
