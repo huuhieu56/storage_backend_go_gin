@@ -44,7 +44,7 @@ type InitUploadRequest struct {
 	MaterialID  string `json:"material_id,omitempty"`
 	Filename    string `json:"filename" binding:"required"`
 	Size        int64  `json:"size" binding:"required"`
-	ContentType string `json:"content_type" binding:"required"`
+	ContentType string `json:"content_type"` // Optional - defaults to application/octet-stream if empty
 }
 
 type InitUploadResponse struct {

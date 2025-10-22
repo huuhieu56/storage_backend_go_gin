@@ -56,6 +56,11 @@ func (h *UploadHandler) InitVideoUpload(c *gin.Context) {
 	// TODO: Validate JWT token with main backend
 	// For now, skip authentication as per requirements
 
+	// Set default content type if not provided
+	if req.ContentType == "" {
+		req.ContentType = "video/mp4"
+	}
+
 	// Validate content type for video
 	if req.ContentType != "video/mp4" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "only video/mp4 is supported"})
@@ -97,22 +102,14 @@ func (h *UploadHandler) InitFileUpload(c *gin.Context) {
 		return
 	}
 
-	// Validate content type for materials
-	allowedTypes := map[string]bool{
-		"application/pdf":      true,
-		"application/msword":   true,
-		"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   true,
-		"application/vnd.ms-powerpoint":                                             true,
-		"application/vnd.openxmlformats-officedocument.presentationml.presentation": true,
-		"image/png":  true,
-		"image/jpeg": true,
-		"image/jpg":  true,
+	// Set default content type if not provided
+	if req.ContentType == "" {
+		req.ContentType = "application/octet-stream"
 	}
 
-	if !allowedTypes[req.ContentType] {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported content type for materials"})
-		return
-	}
+	// REMOVED: No content type validation for materials
+	// Accept ANY file type: documents, images, archives, videos, etc.
+	// The system will store whatever the user uploads
 
 	session, err := h.uploadSvc.CreateSession(&req, models.TypeMaterial)
 	if err != nil {

@@ -17,28 +17,12 @@ function FileUploader() {
   const uploaderRef = useRef(null)
   const fileInputRef = useRef(null)
 
-  const allowedTypes = [
-    'application/pdf',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.ms-powerpoint',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    'image/png',
-    'image/jpeg',
-    'image/jpg'
-  ]
-
-  const allowedExtensions = ['.pdf', '.doc', '.docx', '.ppt', '.pptx', '.png', '.jpg', '.jpeg']
+  // REMOVED: No file type restrictions - accept all file types
+  // Users can upload any file: PDF, DOC, ZIP, RAR, images, videos, etc.
 
   const handleFileSelect = (e) => {
     const file = e.target.files[0]
     if (file) {
-      // Validate file type
-      if (!allowedTypes.includes(file.type)) {
-        setError('File type not supported. Please upload PDF, DOC, DOCX, PPT, PPTX, PNG, or JPG files.')
-        return
-      }
-      
       setSelectedFile(file)
       setError('')
       setSuccess(false)
@@ -154,12 +138,11 @@ function FileUploader() {
           ref={fileInputRef}
           type="file"
           id="material-file"
-          accept={allowedExtensions.join(',')}
           onChange={handleFileSelect}
           disabled={uploading}
         />
         <label htmlFor="material-file" className="file-input-label">
-          Choose File
+          Choose Any File
         </label>
         
         {selectedFile && (

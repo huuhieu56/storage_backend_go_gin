@@ -169,7 +169,8 @@ export class ChunkedUploader {
       lesson_id: this.lessonId,
       filename: this.file.name,
       size: this.file.size,
-      content_type: this.file.type,
+      // Use file type or default to application/octet-stream for unknown types
+      content_type: this.file.type || 'application/octet-stream',
     };
 
     if (this.materialId) {
