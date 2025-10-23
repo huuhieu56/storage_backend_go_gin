@@ -148,19 +148,24 @@ func (m *MergeService) mergeParts(uploadID string, session *models.UploadSession
 	// }
 	outputFile.Close()
 
-	// Calculate hash
+	// Calculate hash for verification (optional, but keep for integrity check)
 	hashStr := hex.EncodeToString(hasher.Sum(nil))
 
-	// Determine final destination
+	// Determine final destination - SIMPLIFIED STRUCTURE
 	var finalDir string
 	var finalPath string
 	
 	if session.Type == models.TypeVideo {
-		finalDir = filepath.Join(m.cfg.VideosDir, session.LessonID, hashStr)
-		finalPath = filepath.Join(finalDir, "output.mp4")
+		// Simple structure: /videos/{lesson_id}/video.mp4
+		// No SHA1 subdirectory - easier to access via Nginx
+		finalDir = filepath.Join(m.cfg.VideosDir, session.LessonID)
+		finalPath = filepath.Join(finalDir, "video.mp4")
+		log.Printf("Video will be saved to: /videos/%s/video.mp4", session.LessonID)
 	} else {
+		// Materials: /materials/{lesson_id}/{material_id}/{filename}
 		finalDir = filepath.Join(m.cfg.MaterialsDir, session.LessonID, session.MaterialID)
 		finalPath = filepath.Join(finalDir, session.Filename)
+		log.Printf("Material will be saved to: /materials/%s/%s/%s", session.LessonID, session.MaterialID, session.Filename)
 	}
 
 	// Create final directory
@@ -187,8 +192,9 @@ func (m *MergeService) sendWebhook(session *models.UploadSession, outputPath, ha
 	if session.Type == models.TypeVideo {
 		webhookURL = m.cfg.MainBackendURL + "/internal/storage/video-ready"
 		
-		// Construct public URL for video
-		videoURL := fmt.Sprintf("http://storage.local/videos/%s/%s/output.mp4", session.LessonID, hash)
+		// SIMPLIFIED: Video URL without SHA1 hash - just lesson_id
+		// Format: /videos/{lesson_id}/video.mp4
+		videoURL := fmt.Sprintf("http://storage.local/videos/%s/video.mp4", session.LessonID)
 		
 		payload = models.VideoReadyWebhook{
 			LessonID:            session.LessonID,
@@ -196,6 +202,7 @@ func (m *MergeService) sendWebhook(session *models.UploadSession, outputPath, ha
 			DurationInSeconds:   0, // TODO: Extract actual duration if needed
 			TranscriptURL:       "",
 		}
+		log.Printf("Video URL for webhook: %s", videoURL)
 	} else {
 		webhookURL = m.cfg.MainBackendURL + "/internal/storage/file-ready"
 		
