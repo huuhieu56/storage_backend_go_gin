@@ -8,20 +8,20 @@ services:
       dockerfile: Dockerfile
     container_name: lms-storage-backend
     ports:
-      - "8080:8080"
+      - "${BACKEND_PORT:-8080}:8080"
     environment:
       - PORT=8080
-      - BASE_UPLOAD_DIR=/app/file_uploads
-      - MAX_CONCURRENT_UPLOADS=50
-      - FILE_WRITE_WORKERS=30
-      - WRITE_QUEUE_SIZE=500
-      - UPLOAD_BUFFER_SIZE=67108864
-      - MERGE_BUFFER_SIZE=67108864
-      - HTTP_READ_TIMEOUT=600
-      - HTTP_WRITE_TIMEOUT=600
+      - BASE_DIR=${BASE_DIR:-/app/file_uploads}
+      - MAX_CONCURRENT_UPLOADS=${MAX_CONCURRENT_UPLOADS:-50}
+      - FILE_WRITE_WORKERS=${FILE_WRITE_WORKERS:-30}
+      - WRITE_QUEUE_SIZE=${WRITE_QUEUE_SIZE:-500}
+      - UPLOAD_BUFFER_SIZE=${UPLOAD_BUFFER_SIZE:-67108864}
+      - MERGE_BUFFER_SIZE=${MERGE_BUFFER_SIZE:-67108864}
+      - HTTP_READ_TIMEOUT=${HTTP_READ_TIMEOUT:-600}
+      - HTTP_WRITE_TIMEOUT=${HTTP_WRITE_TIMEOUT:-600}
     volumes:
-      # BIND MOUNT: Host directory ./file_uploads -> Container /app/file_uploads
-      - ./file_uploads:/app/file_uploads
+      # DOCKER VOLUME: Named volume for persistent storage
+      - lms-storage-data:/app/file_uploads
     networks:
       - lms-network
     restart: unless-stopped
@@ -37,12 +37,12 @@ services:
     image: nginx:alpine
     container_name: lms-nginx
     ports:
-      - "8081:80"
+      - "${NGINX_PORT:-8081}:80"
     volumes:
-      # BIND MOUNT: Nginx config (read-only)
+      # BIND MOUNT: Nginx config (read-only) - keep this as bind mount for easy config changes
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      # BIND MOUNT: Same file_uploads directory (read-only for security)
-      - ./file_uploads:/app/file_uploads:ro
+      # DOCKER VOLUME: Same storage volume (read-only for security)
+      - lms-storage-data:/app/file_uploads:ro
     networks:
       - lms-network
     depends_on:
@@ -60,12 +60,12 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        - VITE_STORAGE_API_URL=http://${HOST_IP:-192.168.1.16}:${BACKEND_PORT:-8080}
+        - VITE_NGINX_URL=http://${HOST_IP:-192.168.1.16}:${NGINX_PORT:-8081}
     container_name: lms-frontend
     ports:
-      - "5173:80"
-    environment:
-      - VITE_STORAGE_API_URL=http://192.168.1.16:8080
-      - VITE_NGINX_URL=http://192.168.1.16:8081
+      - "${FRONTEND_PORT:-5173}:80"
     networks:
       - lms-network
     depends_on:
@@ -77,6 +77,7 @@ networks:
   lms-network:
     driver: bridge
 
-# NO VOLUMES NEEDED! 
-# Using bind mounts - all data stored in ./file_uploads on host machine
-# Easy backup, easy access, no docker volume management needed!
+volumes:
+  # Pure Docker volume - managed by Docker, stored in /var/lib/docker/volumes/
+  # All video/material data will be stored here
+  lms-storage-data:

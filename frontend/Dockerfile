@@ -10,7 +10,11 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Build the application
+# Accept build arguments for Vite environment variables
+ARG VITE_STORAGE_API_URL
+ARG VITE_NGINX_URL
+
+# Build the application with environment variables
 RUN npm run build
 
 # Production stage
