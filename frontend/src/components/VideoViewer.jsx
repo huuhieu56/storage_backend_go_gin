@@ -1,14 +1,11 @@
 import { useState } from 'react'
+import OptimizedVideoPlayer from './OptimizedVideoPlayer'
 
 function VideoViewer() {
   const [lessonId, setLessonId] = useState('')
   const [videoUrl, setVideoUrl] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-
-  // Use Nginx URL for video streaming
-  const NGINX_URL = import.meta.env.VITE_NGINX_URL || 
-                    `http://${window.location.hostname}:8081`
 
   const handleLoadVideo = () => {
     if (!lessonId.trim()) {
@@ -19,8 +16,8 @@ function VideoViewer() {
     setError('')
     setLoading(true)
 
-    // SIMPLIFIED: Video path without SHA1 hash - just /videos/{lesson_id}/video.mp4
-    const url = `${NGINX_URL}/videos/${lessonId.trim()}/video.mp4`
+    // Use relative URL - proxied through frontend Nginx to storage Nginx
+    const url = `/videos/${lessonId.trim()}/video.mp4`
     
     console.log('Loading video from:', url)
     setVideoUrl(url)
@@ -62,15 +59,10 @@ function VideoViewer() {
 
       {videoUrl && (
         <div className="video-player-container">
-          <video 
-            controls 
-            autoPlay
-            style={{ width: '100%', maxWidth: '800px', borderRadius: '8px' }}
-            key={videoUrl}
-          >
-            <source src={videoUrl} type="video/mp4" />
-            Your browser does not support the video tag.
-          </video>
+          <OptimizedVideoPlayer 
+            src={videoUrl}
+            onError={(e) => setError(`Failed to load video: ${e.message}`)}
+          />
 
           <div className="video-info">
             <p><strong>Video URL:</strong></p>

@@ -55,14 +55,11 @@ services:
       retries: 3
       start_period: 5s
 
-  # Frontend (React + Vite)
+  # Frontend (React + Vite) - now uses relative URLs, no build args needed
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      args:
-        - VITE_STORAGE_API_URL=http://${HOST_IP:-192.168.1.16}:${BACKEND_PORT:-8080}
-        - VITE_NGINX_URL=http://${HOST_IP:-192.168.1.16}:${NGINX_PORT:-8081}
     container_name: lms-frontend
     ports:
       - "${FRONTEND_PORT:-5173}:80"

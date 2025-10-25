@@ -1,8 +1,8 @@
 import axios from 'axios';
 
-// Use environment variable or default to current host
-const STORAGE_API_URL = import.meta.env.VITE_STORAGE_API_URL || 
-                        `http://${window.location.hostname}:8080`;
+// Use relative URL to proxy through frontend Nginx
+// Nginx will forward /api/* requests to backend via Docker internal network
+const STORAGE_API_URL = '/api';
 const CHUNK_SIZE = 16 * 1024 * 1024; // 16MB
 
 export class ChunkedUploader {

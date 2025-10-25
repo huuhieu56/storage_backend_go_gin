@@ -8,10 +8,6 @@ function FileDownloader() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  // Use Nginx URL for file downloads
-  const NGINX_URL = import.meta.env.VITE_NGINX_URL || 
-                    `http://${window.location.hostname}:8081`
-
   const handlePrepareDownload = () => {
     if (!lessonId.trim()) {
       setError('Please enter a Lesson ID')
@@ -31,8 +27,8 @@ function FileDownloader() {
     setError('')
     setLoading(true)
 
-    // Material path: /materials/{lesson_id}/{material_id}/{filename}
-    const url = `${NGINX_URL}/materials/${lessonId.trim()}/${materialId.trim()}/${fileName.trim()}`
+    // Use relative URL - proxied through frontend Nginx to storage Nginx
+    const url = `/materials/${lessonId.trim()}/${materialId.trim()}/${fileName.trim()}`
     
     setDownloadUrl(url)
     setLoading(false)

@@ -7,10 +7,6 @@ function FileViewer() {
   const [fileUrl, setFileUrl] = useState('')
   const [error, setError] = useState('')
 
-  // Use Nginx URL for file downloads
-  const NGINX_URL = import.meta.env.VITE_NGINX_URL || 
-                    `http://${window.location.hostname}:8081`
-
   const handleLoadFile = () => {
     if (!lessonId.trim()) {
       setError('Please enter a Lesson ID')
@@ -29,8 +25,8 @@ function FileViewer() {
 
     setError('')
 
-    // File path: /materials/{lesson_id}/{material_id}/{filename}
-    const url = `${NGINX_URL}/materials/${lessonId.trim()}/${materialId.trim()}/${filename.trim()}`
+    // Use relative URL - proxied through frontend Nginx to storage Nginx
+    const url = `/materials/${lessonId.trim()}/${materialId.trim()}/${filename.trim()}`
     
     console.log('Loading file from:', url)
     setFileUrl(url)
