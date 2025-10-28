@@ -83,6 +83,8 @@ func main() {
 	internal := r.Group("/internal")
 	{
 		internal.DELETE("/files/:lesson_id", deleteHandler.DeleteLessonFiles)
+		internal.DELETE("/files/:lesson_id/video", deleteHandler.DeleteLessonVideo)
+		internal.DELETE("/files/:lesson_id/materials/:material_id", deleteHandler.DeleteLessonMaterial)
 	}
 
 	// Health check
