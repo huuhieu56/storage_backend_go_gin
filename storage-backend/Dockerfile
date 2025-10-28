@@ -24,7 +24,7 @@ WORKDIR /app
 COPY --from=builder /storage-backend .
 
 # Create necessary directories
-RUN mkdir -p /srv/lms/uploads/tmp /srv/lms/videos /srv/lms/materials
+RUN mkdir -p /srv/cosign/uploads/tmp /srv/cosign/videos /srv/cosign/materials
 
 # Expose port
 EXPOSE 8080

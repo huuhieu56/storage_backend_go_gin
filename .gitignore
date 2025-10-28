@@ -19,6 +19,7 @@ Thumbs.db
 *.log
 
 # Data
-/srv/lms/
+/srv/cosign/
 /file_uploads/
-
+main-backend/
+storage-backend/file_uploads/

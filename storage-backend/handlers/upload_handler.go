@@ -6,10 +6,11 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"strconv"
 	"storage-backend/config"
 	"storage-backend/models"
 	"storage-backend/services"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/gin-gonic/gin"
@@ -22,12 +23,13 @@ var bufferSize int
 type UploadHandler struct {
 	uploadSvc *services.UploadService
 	mergeSvc  *services.MergeService
+	authSvc   *services.AuthService
 	cfg       *config.Config
 }
 
-func NewUploadHandler(uploadSvc *services.UploadService, mergeSvc *services.MergeService, cfg *config.Config) *UploadHandler {
+func NewUploadHandler(uploadSvc *services.UploadService, mergeSvc *services.MergeService, authSvc *services.AuthService, cfg *config.Config) *UploadHandler {
 	mergeSvc.SetUploadService(uploadSvc)
-	
+
 	// Initialize buffer pool with config size
 	bufferSize = cfg.UploadBufferSize
 	bufferPool = &sync.Pool{
@@ -35,12 +37,13 @@ func NewUploadHandler(uploadSvc *services.UploadService, mergeSvc *services.Merg
 			return make([]byte, bufferSize)
 		},
 	}
-	
+
 	log.Printf("Upload handler initialized with %d MB buffers", bufferSize/(1024*1024))
-	
+
 	return &UploadHandler{
 		uploadSvc: uploadSvc,
 		mergeSvc:  mergeSvc,
+		authSvc:   authSvc,
 		cfg:       cfg,
 	}
 }
@@ -53,8 +56,35 @@ func (h *UploadHandler) InitVideoUpload(c *gin.Context) {
 		return
 	}
 
-	// TODO: Validate JWT token with main backend
-	// For now, skip authentication as per requirements
+	// Validate JWT token with main backend
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "authorization header required"})
+		return
+	}
+
+	// Extract token (strip "Bearer " prefix if present)
+	token := authHeader
+	if len(authHeader) > 7 && authHeader[:7] == "Bearer " {
+		token = authHeader[7:]
+	}
+
+	// Verify lesson access with main backend
+	if err := h.authSvc.VerifyLessonAccess(token, req.LessonID); err != nil {
+		errMsg := err.Error()
+		switch {
+		case strings.HasPrefix(errMsg, "authentication failed"):
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
+		case errMsg == "lesson not found":
+			c.JSON(http.StatusNotFound, gin.H{"error": "lesson not found"})
+		case errMsg == "user does not have access to this lesson":
+			c.JSON(http.StatusForbidden, gin.H{"error": "you don't have permission to upload to this lesson"})
+		default:
+			log.Printf("❗️Unexpected auth verification error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to verify access"})
+		}
+		return
+	}
 
 	// Set default content type if not provided
 	if req.ContentType == "" {
@@ -96,9 +126,33 @@ func (h *UploadHandler) InitFileUpload(c *gin.Context) {
 		return
 	}
 
-	// Validate material_id is provided
-	if req.MaterialID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "material_id is required for file uploads"})
+	// Validate JWT token with main backend
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "authorization header required"})
+		return
+	}
+
+	// Extract token (strip "Bearer " prefix if present)
+	token := authHeader
+	if len(authHeader) > 7 && authHeader[:7] == "Bearer " {
+		token = authHeader[7:]
+	}
+
+	// Verify lesson access with main backend
+	if err := h.authSvc.VerifyLessonAccess(token, req.LessonID); err != nil {
+		errMsg := err.Error()
+		switch {
+		case strings.HasPrefix(errMsg, "authentication failed"):
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
+		case errMsg == "lesson not found":
+			c.JSON(http.StatusNotFound, gin.H{"error": "lesson not found"})
+		case errMsg == "user does not have access to this lesson":
+			c.JSON(http.StatusForbidden, gin.H{"error": "you don't have permission to upload to this lesson"})
+		default:
+			log.Printf("❗️Unexpected auth verification error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to verify access"})
+		}
 		return
 	}
 
@@ -136,7 +190,7 @@ func (h *UploadHandler) InitFileUpload(c *gin.Context) {
 func (h *UploadHandler) UploadPart(c *gin.Context) {
 	uploadID := c.Param("upload_id")
 	partNumStr := c.Param("part_num")
-	
+
 	partNum, err := strconv.Atoi(partNumStr)
 	if err != nil || partNum < 1 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid part number"})
@@ -162,7 +216,7 @@ func (h *UploadHandler) UploadPart(c *gin.Context) {
 	// Read body with MAXIMUM buffer size for FULL SPEED
 	var bodyBuf bytes.Buffer
 	bodyBuf.Grow(bufferSize)
-	
+
 	// Use large portion of buffer for copy (25% of total buffer)
 	copyBufSize := bufferSize / 4
 	n, err := io.CopyBuffer(&bodyBuf, io.LimitReader(c.Request.Body, int64(bufferSize)), buf[:copyBufSize])
@@ -173,7 +227,7 @@ func (h *UploadHandler) UploadPart(c *gin.Context) {
 	}
 
 	data := bodyBuf.Bytes()
-	
+
 	// Log for debugging
 	log.Printf("→ Upload %s: part %d, size: %d bytes", uploadID[:8], partNum, n)
 
@@ -191,7 +245,7 @@ func (h *UploadHandler) UploadPart(c *gin.Context) {
 // CompleteUpload handles POST /uploads/:upload_id/complete
 func (h *UploadHandler) CompleteUpload(c *gin.Context) {
 	uploadID := c.Param("upload_id")
-	
+
 	uploadToken := c.GetHeader("X-Upload-Token")
 	if uploadToken == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing upload token"})
@@ -229,7 +283,7 @@ func (h *UploadHandler) CompleteUpload(c *gin.Context) {
 // GetUploadStatus handles GET /uploads/:upload_id/status
 func (h *UploadHandler) GetUploadStatus(c *gin.Context) {
 	uploadID := c.Param("upload_id")
-	
+
 	session, err := h.uploadSvc.GetSession(uploadID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "upload not found"})
@@ -258,7 +312,7 @@ func (h *UploadHandler) GetUploadStatus(c *gin.Context) {
 // This enables resumable uploads - client can skip already uploaded parts
 func (h *UploadHandler) GetUploadedParts(c *gin.Context) {
 	uploadID := c.Param("upload_id")
-	
+
 	// Check upload token for security
 	uploadToken := c.GetHeader("X-Upload-Token")
 	if uploadToken == "" {

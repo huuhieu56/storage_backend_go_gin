@@ -13,8 +13,12 @@ import (
 	"path/filepath"
 	"storage-backend/config"
 	"storage-backend/models"
+	"storage-backend/utils"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type MergeJob struct {
@@ -48,33 +52,33 @@ func (m *MergeService) EnqueueMerge(uploadID string, session *models.UploadSessi
 
 func (m *MergeService) StartWorker() {
 	var wg sync.WaitGroup
-	
+
 	for i := 0; i < m.cfg.MergeWorkers; i++ {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
 			log.Printf("Merge worker %d started", workerID)
-			
+
 			for job := range m.jobQueue {
 				log.Printf("Worker %d processing upload %s", workerID, job.UploadID)
 				m.processMerge(job)
 			}
 		}(i)
 	}
-	
+
 	wg.Wait()
 }
 
 func (m *MergeService) processMerge(job MergeJob) {
 	session := job.Session
-	
+
 	// Update status to merging
 	if m.uploadSvc != nil {
 		m.uploadSvc.UpdateStatus(job.UploadID, models.StatusMerging, "")
 	}
 
 	// Merge parts
-	outputPath, hash, err := m.mergeParts(job.UploadID, session)
+	outputPath, hash, materialID, err := m.mergeParts(job.UploadID, session)
 	if err != nil {
 		log.Printf("Failed to merge upload %s: %v", job.UploadID, err)
 		if m.uploadSvc != nil {
@@ -92,52 +96,57 @@ func (m *MergeService) processMerge(job MergeJob) {
 	// Include hash in the log so the variable is used and for easier debugging
 	log.Printf("✓ Upload %s completed successfully! File saved to: %s (hash=%s)", job.UploadID, outputPath, hash)
 
-	// TODO: Send webhook to main backend when ready
-	// Commented out for local testing without main backend
-	/*
-	if err := m.sendWebhook(session, outputPath, hash); err != nil {
+	duration := 0
+	if session.Type == models.TypeVideo {
+		if d, err := utils.GetVideoDurationInSeconds(m.cfg.FFProbePath, outputPath); err != nil {
+			log.Printf("Failed to extract duration for upload %s: %v", job.UploadID, err)
+		} else {
+			duration = d
+		}
+	}
+
+	if err := m.sendWebhook(session, outputPath, hash, duration, materialID); err != nil {
 		log.Printf("Failed to send webhook for upload %s: %v", job.UploadID, err)
 		// Don't mark as failed if webhook fails - file is still ready
 	}
-	*/
 
 	// Cleanup temp files
 	m.cleanup(job.UploadID)
 }
 
-func (m *MergeService) mergeParts(uploadID string, session *models.UploadSession) (string, string, error) {
+func (m *MergeService) mergeParts(uploadID string, session *models.UploadSession) (string, string, string, error) {
 	uploadDir := filepath.Join(m.cfg.UploadTmpDir, uploadID)
 	partsDir := filepath.Join(uploadDir, "parts")
-	
+
 	// Create temporary output file
 	tempOutput := filepath.Join(uploadDir, "input"+filepath.Ext(session.Filename))
 	outputFile, err := os.Create(tempOutput)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to create output file: %w", err)
+		return "", "", "", fmt.Errorf("failed to create output file: %w", err)
 	}
 	defer outputFile.Close()
 
 	// Hash calculator
 	hasher := sha1.New()
-	
+
 	// Use configured buffer size for merging (maximum throughput)
 	buffer := make([]byte, m.cfg.MergeBufferSize)
 	log.Printf("Merging with %d MB buffer for maximum speed", m.cfg.MergeBufferSize/(1024*1024))
-	
+
 	for i := 1; i <= session.TotalParts; i++ {
 		partPath := filepath.Join(partsDir, fmt.Sprintf("part-%d", i))
-		
+
 		partFile, err := os.Open(partPath)
 		if err != nil {
-			return "", "", fmt.Errorf("failed to open part %d: %w", i, err)
+			return "", "", "", fmt.Errorf("failed to open part %d: %w", i, err)
 		}
-		
+
 		// Copy with LARGE buffer for maximum throughput
 		_, err = io.CopyBuffer(io.MultiWriter(outputFile, hasher), partFile, buffer)
 		partFile.Close()
-		
+
 		if err != nil {
-			return "", "", fmt.Errorf("failed to copy part %d: %w", i, err)
+			return "", "", "", fmt.Errorf("failed to copy part %d: %w", i, err)
 		}
 	}
 
@@ -154,7 +163,8 @@ func (m *MergeService) mergeParts(uploadID string, session *models.UploadSession
 	// Determine final destination - SIMPLIFIED STRUCTURE
 	var finalDir string
 	var finalPath string
-	
+	var materialID string
+
 	if session.Type == models.TypeVideo {
 		// Simple structure: /videos/{lesson_id}/video.mp4
 		// No SHA1 subdirectory - easier to access via Nginx
@@ -162,62 +172,73 @@ func (m *MergeService) mergeParts(uploadID string, session *models.UploadSession
 		finalPath = filepath.Join(finalDir, "video.mp4")
 		log.Printf("Video will be saved to: /videos/%s/video.mp4", session.LessonID)
 	} else {
-		// Materials: /materials/{lesson_id}/{material_id}/{filename}
-		finalDir = filepath.Join(m.cfg.MaterialsDir, session.LessonID, session.MaterialID)
+		// Materials: generate new material ID and store under that directory for stable URLs
+		materialID = uuid.NewString()
+		materialFolder := materialID
+		finalDir = filepath.Join(m.cfg.MaterialsDir, session.LessonID, materialFolder)
 		finalPath = filepath.Join(finalDir, session.Filename)
-		log.Printf("Material will be saved to: /materials/%s/%s/%s", session.LessonID, session.MaterialID, session.Filename)
+		log.Printf("Material will be saved to: /materials/%s/%s/%s", session.LessonID, materialFolder, session.Filename)
 	}
 
 	// Create final directory
 	if err := os.MkdirAll(finalDir, 0755); err != nil {
-		return "", "", fmt.Errorf("failed to create final directory: %w", err)
+		return "", "", "", fmt.Errorf("failed to create final directory: %w", err)
 	}
 
 	// Move file to final location
 	if err := os.Rename(tempOutput, finalPath); err != nil {
 		// If rename fails (cross-device), copy instead
 		if err := copyFile(tempOutput, finalPath); err != nil {
-			return "", "", fmt.Errorf("failed to move file: %w", err)
+			return "", "", "", fmt.Errorf("failed to move file: %w", err)
 		}
 		os.Remove(tempOutput)
 	}
 
-	return finalPath, hashStr, nil
+	return finalPath, hashStr, materialID, nil
 }
 
-func (m *MergeService) sendWebhook(session *models.UploadSession, outputPath, hash string) error {
-	var webhookURL string
-	var payload interface{}
+func (m *MergeService) sendWebhook(session *models.UploadSession, _ string, _ string, duration int, materialID string) error {
+	var (
+		webhookURL string
+		payload    interface{}
+	)
 
-	if session.Type == models.TypeVideo {
+	publicBase := strings.TrimRight(m.cfg.PublicBaseURL, "/")
+	if publicBase == "" {
+		publicBase = "http://localhost:8081"
+	}
+
+	switch session.Type {
+	case models.TypeVideo:
 		webhookURL = m.cfg.MainBackendURL + "/internal/storage/video-ready"
-		
-		// SIMPLIFIED: Video URL without SHA1 hash - just lesson_id
-		// Format: /videos/{lesson_id}/video.mp4
-		videoURL := fmt.Sprintf("http://storage.local/videos/%s/video.mp4", session.LessonID)
-		
-		payload = models.VideoReadyWebhook{
-			LessonID:            session.LessonID,
-			VideoURL:            videoURL,
-			DurationInSeconds:   0, // TODO: Extract actual duration if needed
-			TranscriptURL:       "",
+		videoURL := fmt.Sprintf("%s/videos/%s/video.mp4", publicBase, session.LessonID)
+		videoPayload := models.VideoReadyWebhook{
+			LessonID: session.LessonID,
+			VideoURL: videoURL,
 		}
+		if duration > 0 {
+			videoPayload.DurationInSeconds = duration
+		}
+		payload = videoPayload
 		log.Printf("Video URL for webhook: %s", videoURL)
-	} else {
+
+	case models.TypeMaterial:
 		webhookURL = m.cfg.MainBackendURL + "/internal/storage/file-ready"
-		
-		// Construct public URL for material
-		fileURL := fmt.Sprintf("http://storage.local/materials/%s/%s/%s", 
-			session.LessonID, session.MaterialID, session.Filename)
-		
+		if materialID == "" {
+			materialID = session.UploadID
+		}
+		fileURL := fmt.Sprintf("%s/materials/%s/%s/%s", publicBase, session.LessonID, materialID, session.Filename)
 		payload = models.FileReadyWebhook{
 			LessonID:    session.LessonID,
-			MaterialID:  session.MaterialID,
+			MaterialID:  materialID,
 			FileURL:     fileURL,
 			Filename:    session.Filename,
 			SizeBytes:   session.ExpectedSize,
 			ContentType: session.ContentType,
 		}
+
+	default:
+		return fmt.Errorf("unsupported upload type for webhook: %s", session.Type)
 	}
 
 	jsonData, err := json.Marshal(payload)
@@ -243,7 +264,7 @@ func (m *MergeService) sendWebhook(session *models.UploadSession, outputPath, ha
 
 func (m *MergeService) cleanup(uploadID string) {
 	uploadDir := filepath.Join(m.cfg.UploadTmpDir, uploadID)
-	
+
 	// Remove parts directory
 	partsDir := filepath.Join(uploadDir, "parts")
 	if err := os.RemoveAll(partsDir); err != nil {

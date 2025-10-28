@@ -14,9 +14,12 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	loadEnv()
+
 	// Load configuration
 	cfg := config.Load()
 
@@ -43,6 +46,7 @@ func main() {
 	// Initialize services
 	uploadService := services.NewUploadService(cfg)
 	mergeService := services.NewMergeService(cfg)
+	authService := services.NewAuthService(cfg)
 
 	// Start merge worker
 	go mergeService.StartWorker()
@@ -58,7 +62,8 @@ func main() {
 	r.Use(cors.New(corsConfig))
 
 	// Initialize handlers
-	uploadHandler := handlers.NewUploadHandler(uploadService, mergeService, cfg)
+	uploadHandler := handlers.NewUploadHandler(uploadService, mergeService, authService, cfg)
+	deleteHandler := handlers.NewDeleteHandler(cfg)
 
 	// Routes
 	uploads := r.Group("/uploads")
@@ -72,6 +77,12 @@ func main() {
 
 		// File/Material uploads (same flow as video)
 		uploads.POST("/files", uploadHandler.InitFileUpload)
+	}
+
+	// Internal API for main backend
+	internal := r.Group("/internal")
+	{
+		internal.DELETE("/files/:lesson_id", deleteHandler.DeleteLessonFiles)
 	}
 
 	// Health check
@@ -95,7 +106,6 @@ func main() {
 		log.Printf("📊 Max concurrent uploads: %d", cfg.MaxConcurrent)
 		log.Printf("💾 File write workers: %d", cfg.FileWriteWorkers)
 		log.Printf("📦 Upload buffer size: %d MB", cfg.UploadBufferSize/(1024*1024))
-		log.Printf("⚡ Optimized for FULL GIGABIT SPEED - No artificial limits!")
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Failed to start server: %v", err)
 		}
@@ -115,4 +125,30 @@ func main() {
 	}
 
 	log.Println("Server exited")
+}
+
+func loadEnv() {
+	envCandidates := []string{
+		".env",
+		"storage-backend/.env",
+		"../storage-backend/.env",
+		"../.env",
+	}
+
+	loaded := false
+	for _, path := range envCandidates {
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		if err := godotenv.Overload(path); err != nil {
+			log.Printf("⚠️ Failed to load environment variables from %s: %v", path, err)
+			continue
+		}
+		log.Printf("Loaded environment variables from %s", path)
+		loaded = true
+	}
+
+	if !loaded {
+		log.Printf("⚠️ No .env file found. Using existing environment variables only.")
+	}
 }

@@ -10,7 +10,7 @@ function App() {
 
   return (
     <div className="app">
-      <h1>LMS - Storage System</h1>
+      <h1>cosign - Storage System</h1>
       
       <div className="tabs">
         <button 

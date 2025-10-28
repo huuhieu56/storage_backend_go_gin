@@ -37,14 +37,14 @@ func NewUploadService(cfg *config.Config) *UploadService {
 		sessions:   make(map[string]*models.UploadSession),
 		writeQueue: make(chan writeJob, cfg.WriteQueueSize),
 	}
-	
+
 	// Start async file writers from config
 	log.Printf("Starting %d file writer workers (configurable via FILE_WRITE_WORKERS)", cfg.FileWriteWorkers)
-	
+
 	for i := 0; i < cfg.FileWriteWorkers; i++ {
 		go svc.fileWriter(i)
 	}
-	
+
 	return svc
 }
 
@@ -60,11 +60,11 @@ func (s *UploadService) fileWriter(workerID int) {
 			close(job.done)
 			continue
 		}
-		
+
 		// Write in one go for maximum speed
 		_, err = file.Write(job.data)
 		file.Close() // Don't fsync for speed (risk: data loss on crash)
-		
+
 		job.done <- err
 		close(job.done)
 	}
@@ -97,13 +97,12 @@ func (s *UploadService) CreateSession(req *models.InitUploadRequest, uploadType 
 
 	uploadID := uuid.New().String()
 	uploadToken := generateToken()
-	
+
 	totalParts := int(math.Ceil(float64(req.Size) / float64(s.cfg.ChunkSize)))
 
 	session := &models.UploadSession{
 		UploadID:      uploadID,
 		LessonID:      req.LessonID,
-		MaterialID:    req.MaterialID,
 		Type:          uploadType,
 		Filename:      req.Filename,
 		ContentType:   req.ContentType,
@@ -128,7 +127,7 @@ func (s *UploadService) CreateSession(req *models.InitUploadRequest, uploadType 
 
 	s.IncrementActive()
 
-	log.Printf("Created upload session %s for lesson %s, size: %d bytes, parts: %d", 
+	log.Printf("Created upload session %s for lesson %s, size: %d bytes, parts: %d",
 		uploadID[:8], req.LessonID, req.Size, totalParts)
 
 	return session, nil
@@ -147,7 +146,6 @@ func (s *UploadService) GetSession(uploadID string) (*models.UploadSession, erro
 	sessionCopy := &models.UploadSession{
 		UploadID:      session.UploadID,
 		LessonID:      session.LessonID,
-		MaterialID:    session.MaterialID,
 		Type:          session.Type,
 		Filename:      session.Filename,
 		ContentType:   session.ContentType,
@@ -184,7 +182,7 @@ func (s *UploadService) GetUploadedParts(uploadID string) ([]int, error) {
 	s.mu.RLock()
 	session, exists := s.sessions[uploadID]
 	s.mu.RUnlock()
-	
+
 	if !exists {
 		return nil, fmt.Errorf("upload session not found")
 	}
@@ -192,9 +190,9 @@ func (s *UploadService) GetUploadedParts(uploadID string) ([]int, error) {
 	// Check which part files actually exist on disk
 	uploadDir := s.getUploadDir(uploadID)
 	partsDir := filepath.Join(uploadDir, "parts")
-	
+
 	var uploadedParts []int
-	
+
 	// Read lock while checking PartsReceived map
 	s.mu.RLock()
 	for partNum := range session.PartsReceived {
@@ -206,7 +204,7 @@ func (s *UploadService) GetUploadedParts(uploadID string) ([]int, error) {
 	}
 	s.mu.RUnlock()
 
-	log.Printf("Upload %s: Found %d/%d parts already uploaded (resumable)", 
+	log.Printf("Upload %s: Found %d/%d parts already uploaded (resumable)",
 		uploadID[:8], len(uploadedParts), session.TotalParts)
 
 	return uploadedParts, nil
@@ -216,7 +214,7 @@ func (s *UploadService) SavePart(uploadID string, partNum int, data []byte) erro
 	// Make a copy of data since it might be from a pooled buffer
 	dataCopy := make([]byte, len(data))
 	copy(dataCopy, data)
-	
+
 	// Queue async write
 	partPath := s.getPartPath(uploadID, partNum)
 	job := writeJob{
@@ -224,7 +222,7 @@ func (s *UploadService) SavePart(uploadID string, partNum int, data []byte) erro
 		data: dataCopy,
 		done: make(chan error, 1),
 	}
-	
+
 	// Send to write queue (non-blocking if queue has space)
 	select {
 	case s.writeQueue <- job:
@@ -236,7 +234,7 @@ func (s *UploadService) SavePart(uploadID string, partNum int, data []byte) erro
 		}
 		goto updateSession
 	}
-	
+
 	// Wait for write to complete
 	if err := <-job.done; err != nil {
 		return fmt.Errorf("failed to write part: %w", err)
@@ -267,7 +265,7 @@ updateSession:
 	// Log progress every 10 parts to reduce log spam
 	if partNum%10 == 0 || partNum == session.TotalParts {
 		progress := float64(session.ReceivedBytes) / float64(session.ExpectedSize) * 100
-		log.Printf("📦 Upload %s: part %d/%d received, progress: %.1f%%", 
+		log.Printf("📦 Upload %s: part %d/%d received, progress: %.1f%%",
 			uploadID[:8], partNum, session.TotalParts, progress)
 	}
 

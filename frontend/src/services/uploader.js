@@ -1,17 +1,27 @@
 import axios from 'axios';
 
-// Use relative URL to proxy through frontend Nginx
-// Nginx will forward /api/* requests to backend via Docker internal network
-const STORAGE_API_URL = '/api';
+// Check if we should use proxy (local dev) or relative URL (docker)
+const USE_PROXY = import.meta.env.VITE_USE_PROXY === 'true';
+
+// Use relative URL for Docker (proxied by Nginx) or /api for local dev (proxied by Vite)
+const STORAGE_API_URL = USE_PROXY ? '/api' : '/api';
+
 const CHUNK_SIZE = 16 * 1024 * 1024; // 16MB
 
+console.log('🔧 Storage API Config:', {
+  USE_PROXY,
+  STORAGE_API_URL,
+  mode: import.meta.env.MODE
+});
+
 export class ChunkedUploader {
-  constructor(file, lessonId, materialId = null, onProgress = null, onStatusChange = null) {
+  constructor(file, lessonId, uploadType = 'video', onProgress = null, onStatusChange = null, jwtToken = null) {
     this.file = file;
     this.lessonId = lessonId;
-    this.materialId = materialId;
+    this.uploadType = uploadType;
     this.onProgress = onProgress;
     this.onStatusChange = onStatusChange;
+    this.jwtToken = jwtToken; // JWT token for authentication
     this.uploadId = null;
     this.uploadToken = null;
     this.aborted = false;
@@ -28,7 +38,7 @@ export class ChunkedUploader {
       fileName: this.file.name,
       fileSize: this.file.size,
       lessonId: this.lessonId,
-      materialId: this.materialId,
+      uploadType: this.uploadType,
       uploadedParts: Array.from(this.uploadedParts),
       timestamp: Date.now()
     };
@@ -93,7 +103,7 @@ export class ChunkedUploader {
       // Try to resume existing upload
       if (resumeUploadId) {
         const savedState = ChunkedUploader.restoreState(resumeUploadId);
-        if (savedState && savedState.fileSize === this.file.size) {
+        if (savedState && savedState.fileSize === this.file.size && savedState.uploadType === this.uploadType) {
           console.log('🔄 Resuming upload:', resumeUploadId);
           this.uploadId = savedState.uploadId;
           this.uploadToken = savedState.uploadToken;
@@ -121,7 +131,7 @@ export class ChunkedUploader {
       }
       
       // Step 1: Initialize upload
-      const initResponse = await this.initUpload();
+  const initResponse = await this.initUpload();
       this.uploadId = initResponse.upload_id;
       this.uploadToken = initResponse.upload_token;
       
@@ -155,15 +165,34 @@ export class ChunkedUploader {
       return { success: true, uploadId: this.uploadId };
     } catch (error) {
       console.error('Upload error:', error);
-      if (this.onStatusChange) {
-        this.onStatusChange('failed', error.message || 'Upload failed');
+      
+      // Better error messages for auth failures
+      let errorMessage = error.message || 'Upload failed';
+      
+      if (error.response) {
+        const status = error.response.status;
+        const data = error.response.data;
+        
+        if (status === 401) {
+          errorMessage = '🔒 Authentication failed: ' + (data.error || 'Invalid or expired JWT token');
+        } else if (status === 403) {
+          errorMessage = '🚫 Access denied: ' + (data.error || 'You don\'t have permission to upload to this lesson');
+        } else if (status === 404) {
+          errorMessage = '❌ Not found: ' + (data.error || 'Lesson not found');
+        } else if (data.error) {
+          errorMessage = data.error;
+        }
       }
-      return { success: false, message: error.message };
+      
+      if (this.onStatusChange) {
+        this.onStatusChange('failed', errorMessage);
+      }
+      return { success: false, message: errorMessage };
     }
   }
 
   async initUpload() {
-    const endpoint = this.materialId ? '/uploads/files' : '/uploads/videos';
+    const endpoint = this.uploadType === 'material' ? '/uploads/files' : '/uploads/videos';
     
     const payload = {
       lesson_id: this.lessonId,
@@ -173,16 +202,18 @@ export class ChunkedUploader {
       content_type: this.file.type || 'application/octet-stream',
     };
 
-    if (this.materialId) {
-      payload.material_id = this.materialId;
+    // Build headers
+    const headers = {
+      'Content-Type': 'application/json',
+    };
+
+    // Add JWT token if provided
+    if (this.jwtToken) {
+      headers['Authorization'] = `Bearer ${this.jwtToken}`;
     }
 
     const response = await axios.post(`${STORAGE_API_URL}${endpoint}`, payload, {
-      headers: {
-        'Content-Type': 'application/json',
-        // TODO: Add JWT token when authentication is implemented
-        // 'Authorization': `Bearer ${token}`
-      }
+      headers: headers
     });
 
     return response.data;

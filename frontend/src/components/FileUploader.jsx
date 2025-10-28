@@ -3,7 +3,7 @@ import ChunkedUploader from '../services/uploader'
 
 function FileUploader() {
   const [lessonId, setLessonId] = useState('')
-  const [materialId, setMaterialId] = useState('')
+  const [jwtToken, setJwtToken] = useState('')
   const [selectedFile, setSelectedFile] = useState(null)
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -37,8 +37,8 @@ function FileUploader() {
       return
     }
 
-    if (!materialId.trim()) {
-      setError('Please enter a Material ID')
+    if (!jwtToken.trim()) {
+      setError('Please enter a JWT Token (required for authentication)')
       return
     }
 
@@ -55,7 +55,7 @@ function FileUploader() {
     const uploader = new ChunkedUploader(
       selectedFile,
       lessonId.trim(),
-      materialId.trim(),
+      'material',
       // Progress callback
       (progressPercent, part, total) => {
         setProgress(progressPercent)
@@ -66,7 +66,9 @@ function FileUploader() {
       (newStatus, message) => {
         setStatus(newStatus)
         setStatusMessage(message)
-      }
+      },
+      // JWT token for authentication
+      jwtToken.trim() || null
     )
 
     uploaderRef.current = uploader
@@ -119,18 +121,25 @@ function FileUploader() {
           placeholder="Enter lesson ID"
           disabled={uploading}
         />
+        <small style={{ color: '#7f8c8d', marginTop: '4px', display: 'block' }}>
+          A new material ID will be generated automatically after upload.
+        </small>
       </div>
 
       <div className="form-group">
-        <label htmlFor="material-id">Material ID *</label>
-        <input
-          id="material-id"
-          type="text"
-          value={materialId}
-          onChange={(e) => setMaterialId(e.target.value)}
-          placeholder="Enter material ID"
+        <label htmlFor="jwt-token">JWT Token *</label>
+        <textarea
+          id="jwt-token"
+          value={jwtToken}
+          onChange={(e) => setJwtToken(e.target.value)}
+          placeholder="Paste your JWT token here (required)"
           disabled={uploading}
+          rows="3"
+          style={{ fontFamily: 'monospace', fontSize: '12px', resize: 'vertical' }}
         />
+        <small style={{ color: '#e74c3c', marginTop: '4px', display: 'block' }}>
+          ⚠️ Required for authentication - Get token from main-backend login
+        </small>
       </div>
 
       <div className="file-selector">

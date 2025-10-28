@@ -3,6 +3,7 @@ import ChunkedUploader from '../services/uploader'
 
 function VideoUploader() {
   const [lessonId, setLessonId] = useState('')
+  const [jwtToken, setJwtToken] = useState('')
   const [selectedFile, setSelectedFile] = useState(null)
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -39,6 +40,11 @@ function VideoUploader() {
       return
     }
 
+    if (!jwtToken.trim()) {
+      setError('Please enter a JWT Token (required for authentication)')
+      return
+    }
+
     if (!selectedFile) {
       setError('Please select a video file')
       return
@@ -52,7 +58,7 @@ function VideoUploader() {
     const uploader = new ChunkedUploader(
       selectedFile,
       lessonId.trim(),
-      null, // No material ID for videos
+      'video',
       // Progress callback
       (progressPercent, part, total) => {
         setProgress(progressPercent)
@@ -63,7 +69,9 @@ function VideoUploader() {
       (newStatus, message) => {
         setStatus(newStatus)
         setStatusMessage(message)
-      }
+      },
+      // JWT token for authentication
+      jwtToken.trim() || null
     )
 
     uploaderRef.current = uploader
@@ -113,9 +121,25 @@ function VideoUploader() {
           type="text"
           value={lessonId}
           onChange={(e) => setLessonId(e.target.value)}
-          placeholder="Enter lesson ID"
+          placeholder="Enter lesson ID (UUID)"
           disabled={uploading}
         />
+      </div>
+
+      <div className="form-group">
+        <label htmlFor="jwt-token">JWT Token *</label>
+        <textarea
+          id="jwt-token"
+          value={jwtToken}
+          onChange={(e) => setJwtToken(e.target.value)}
+          placeholder="Paste your JWT token here (required)"
+          disabled={uploading}
+          rows="3"
+          style={{ fontFamily: 'monospace', fontSize: '12px', resize: 'vertical' }}
+        />
+        <small style={{ color: '#e74c3c', marginTop: '4px', display: 'block' }}>
+          ⚠️ Required for authentication - Get token from main-backend login
+        </small>
       </div>
 
       <div className="file-selector">
