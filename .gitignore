@@ -1,11 +1,11 @@
 # Storage Backend
-storage-backend/.env
+# storage-backend/.env
 storage-backend/storage-backend
 
 # Frontend
 frontend/node_modules/
 frontend/dist/
-frontend/.env
+# frontend/.env
 
 # IDE
 .vscode/
