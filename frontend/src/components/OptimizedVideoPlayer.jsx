@@ -18,8 +18,9 @@ function OptimizedVideoPlayer({ src, onError }) {
 
     // Cấu hình buffer behavior
     const setupBufferControl = () => {
-      // Chrome/Safari tự động quản lý buffer, nhưng có thể hint bằng preload
-      video.preload = 'metadata' // Chỉ load metadata ban đầu
+      // CRITICAL: Chỉ load metadata, KHÔNG preload video data
+      // Điều này ngăn browser tải hàng trăm chunks nhỏ trước khi play
+      video.preload = 'none' // 'none' thay vì 'metadata' để tránh preload
       
       // Khi user click play, browser sẽ bắt đầu load
       video.addEventListener('play', handlePlay)
@@ -92,6 +93,7 @@ function OptimizedVideoPlayer({ src, onError }) {
       <video
         ref={videoRef}
         controls
+        preload="none"
         style={{ 
           width: '100%', 
           maxWidth: '800px', 
