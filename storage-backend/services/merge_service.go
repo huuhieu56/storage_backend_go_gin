@@ -246,19 +246,24 @@ func (m *MergeService) sendWebhook(session *models.UploadSession, _ string, _ st
 		return fmt.Errorf("failed to marshal webhook payload: %w", err)
 	}
 
+	log.Printf("Sending webhook to %s with payload: %s", webhookURL, string(jsonData))
+
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Post(webhookURL, "application/json", bytes.NewBuffer(jsonData))
 	if err != nil {
+		log.Printf("❌ Failed to send webhook to %s: %v", webhookURL, err)
 		return fmt.Errorf("failed to send webhook: %w", err)
 	}
 	defer resp.Body.Close()
 
+	body, _ := io.ReadAll(resp.Body)
+
 	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
+		log.Printf("❌ Webhook returned error %d: %s", resp.StatusCode, string(body))
 		return fmt.Errorf("webhook returned error %d: %s", resp.StatusCode, string(body))
 	}
 
-	log.Printf("Webhook sent successfully for upload %s", session.UploadID)
+	log.Printf("✅ Webhook sent successfully for upload %s (status: %d, response: %s)", session.UploadID, resp.StatusCode, string(body))
 	return nil
 }
 
