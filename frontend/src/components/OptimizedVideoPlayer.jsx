@@ -18,19 +18,32 @@ function OptimizedVideoPlayer({ src, onError }) {
 
     // Cấu hình buffer behavior
     const setupBufferControl = () => {
-      // CRITICAL: Chỉ load metadata, KHÔNG preload video data
-      // Điều này ngăn browser tải hàng trăm chunks nhỏ trước khi play
-      video.preload = 'none' // 'none' thay vì 'metadata' để tránh preload
+      // CRITICAL: Load metadata ngay để biết duration, nhưng chỉ load video data khi cần
+      video.preload = 'metadata'
       
-      // Khi user click play, browser sẽ bắt đầu load
-      video.addEventListener('play', handlePlay)
+      video.addEventListener('loadedmetadata', handleLoadedMetadata)
+      video.addEventListener('canplay', handleCanPlay)
       video.addEventListener('timeupdate', handleTimeUpdate)
       video.addEventListener('progress', handleProgress)
-      video.addEventListener('loadedmetadata', handleLoadedMetadata)
+      video.addEventListener('waiting', handleWaiting)
+      video.addEventListener('playing', handlePlaying)
     }
 
-    const handlePlay = () => {
-      console.log('Video started playing, browser will manage buffering')
+    const handleLoadedMetadata = () => {
+      setDuration(video.duration)
+      console.log(`✓ Video metadata loaded, duration: ${video.duration.toFixed(1)}s`)
+    }
+
+    const handleCanPlay = () => {
+      console.log('✓ Video ready to play - buffered enough data for start')
+    }
+
+    const handleWaiting = () => {
+      console.log('⏳ Buffering more data...')
+    }
+
+    const handlePlaying = () => {
+      console.log('▶️ Video playing')
     }
 
     const handleTimeUpdate = () => {
@@ -44,19 +57,21 @@ function OptimizedVideoPlayer({ src, onError }) {
         const bufferedSeconds = bufferedEnd - video.currentTime
         setBuffered(bufferedSeconds)
         
-        console.log(`Buffered: ${bufferedSeconds.toFixed(1)}s ahead`)
+        // Log mỗi 5s để tránh spam console
+        if (Math.floor(bufferedSeconds) % 5 === 0) {
+          console.log(`Buffer: ${bufferedSeconds.toFixed(1)}s ahead (target: ~60s max)`)
+        }
       }
     }
 
-    const handleLoadedMetadata = () => {
-      setDuration(video.duration)
-      console.log(`Video duration: ${video.duration.toFixed(1)}s`)
-    }
-
     /**
-     * Kiểm tra buffer và dừng preload nếu đã đủ 60s
-     * Note: HTML5 video không có API trực tiếp để dừng preload,
-     * nhưng có thể dùng Media Source Extensions (MSE) nếu cần kiểm soát chi tiết hơn
+     * Browser tự động quản lý buffer - nó sẽ:
+     * 1. Load chunk đầu tiên để có thể play ngay
+     * 2. Load thêm ~60s buffer phía trước
+     * 3. Khi user seek, load chunk mới ở vị trí đó
+     * 
+     * Với Nginx config mới (chunks 2MB + limit_rate_after 10MB), 
+     * browser chỉ cần ~5-10 requests thay vì 200+ requests
      */
     const checkBufferAhead = () => {
       if (video.buffered.length === 0) return
@@ -64,20 +79,21 @@ function OptimizedVideoPlayer({ src, onError }) {
       const bufferedEnd = video.buffered.end(video.buffered.length - 1)
       const bufferedAhead = bufferedEnd - video.currentTime
 
-      // Nếu buffer quá 60s, có thể hint browser giảm tốc độ fetch
+      // Browser tự động throttle khi buffer đủ, ta chỉ log để monitor
       if (bufferedAhead > 60) {
-        console.log(`Buffer sufficient (${bufferedAhead.toFixed(1)}s), reducing fetch rate`)
-        // Browser sẽ tự động throttle nếu buffer đủ
+        // Đủ buffer rồi, browser sẽ giảm tốc độ fetch
       }
     }
 
     setupBufferControl()
 
     return () => {
-      video?.removeEventListener('play', handlePlay)
+      video?.removeEventListener('loadedmetadata', handleLoadedMetadata)
+      video?.removeEventListener('canplay', handleCanPlay)
       video?.removeEventListener('timeupdate', handleTimeUpdate)
       video?.removeEventListener('progress', handleProgress)
-      video?.removeEventListener('loadedmetadata', handleLoadedMetadata)
+      video?.removeEventListener('waiting', handleWaiting)
+      video?.removeEventListener('playing', handlePlaying)
     }
   }, [src])
 
@@ -93,7 +109,7 @@ function OptimizedVideoPlayer({ src, onError }) {
       <video
         ref={videoRef}
         controls
-        preload="none"
+        preload="metadata"
         style={{ 
           width: '100%', 
           maxWidth: '800px', 
@@ -141,7 +157,7 @@ function OptimizedVideoPlayer({ src, onError }) {
           }} />
         </div>
         <small style={{ color: '#666', marginTop: '5px', display: 'block' }}>
-          Target: 60s buffer ahead for smooth playback
+          💡 Browser tự động load ~60s buffer phía trước. Khi bạn seek, sẽ load chunk mới.
         </small>
       </div>
     </div>
