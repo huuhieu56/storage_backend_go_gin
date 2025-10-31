@@ -27,8 +27,16 @@ function FileDownloader() {
     setError('')
     setLoading(true)
 
-    // Use relative URL - proxied through frontend Nginx to storage Nginx
-    const url = `/materials/${lessonId.trim()}/${materialId.trim()}/${fileName.trim()}`
+    // Build full URL with Nginx server address
+    // Get Nginx address from env or use default
+    let nginxAddress = import.meta.env.VITE_NGINX_URL || "157.245.49.147:8081"
+    
+    // Ensure protocol is included
+    if (!nginxAddress.startsWith('http://') && !nginxAddress.startsWith('https://')) {
+      nginxAddress = `http://${nginxAddress}`
+    }
+    
+    const url = `${nginxAddress}/materials/${lessonId.trim()}/${materialId.trim()}/${fileName.trim()}`
     
     setDownloadUrl(url)
     setLoading(false)
@@ -44,7 +52,8 @@ function FileDownloader() {
 
   const handleDownload = () => {
     if (downloadUrl) {
-      window.open(downloadUrl, '_blank')
+      // Simply navigate to the URL - browser will handle the download
+      window.location.href = downloadUrl
     }
   }
 
