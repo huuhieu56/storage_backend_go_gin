@@ -1,4 +1,4 @@
-version: '3.8'
+# version: '3.8'
 
 services:
   # Storage Backend (Go + Gin)
@@ -19,7 +19,7 @@ services:
       - MERGE_BUFFER_SIZE=${MERGE_BUFFER_SIZE:-67108864}
       - HTTP_READ_TIMEOUT=${HTTP_READ_TIMEOUT:-600}
       - HTTP_WRITE_TIMEOUT=${HTTP_WRITE_TIMEOUT:-600}
-      - MAIN_BACKEND_URL=http://cosign-main-backend:8000
+      - MAIN_BACKEND_URL=${MAIN_BACKEND_URL:-http://167.71.200.141:8001}
       - PUBLIC_BASE_URL=${PUBLIC_BASE_URL:-http://storage.local}
       - FFPROBE_PATH=${FFPROBE_PATH:-ffprobe}
       - INTERNAL_API_KEY=${INTERNAL_API_KEY:-change-this-to-a-secure-random-key-in-production}
@@ -28,8 +28,8 @@ services:
       - cosign-storage-data:/app/file_uploads
     networks:
       - cosign-network
-    depends_on:
-      - main-backend
+    # depends_on:
+      # - main-backend
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
