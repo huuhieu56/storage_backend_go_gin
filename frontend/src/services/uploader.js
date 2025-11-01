@@ -8,6 +8,8 @@ const STORAGE_API_URL = USE_PROXY ? '/api' : '/api';
 
 const CHUNK_SIZE = 16 * 1024 * 1024; // 16MB
 const CHUNK_TIMEOUT = 5 * 60 * 1000; // 5 minute timeout per chunk để tránh ngắt khi mạng chậm
+const CHUNK_MAX_RETRIES = 3; // Số lần thử lại tối đa cho mỗi chunk
+const RETRY_BASE_DELAY = 3000; // Đợi 3 giây trước khi thử lại, tăng dần theo số lần
 
 console.log('🔧 Storage API Config:', {
   USE_PROXY,
@@ -272,18 +274,43 @@ export class ChunkedUploader {
 
   async uploadPart(partNum, chunk) {
     const url = `${STORAGE_API_URL}/uploads/${this.uploadId}/parts/${partNum}`;
-    
-    // Don't set Content-Length - browser will set it automatically
-    // Setting it manually causes "Refused to set unsafe header" error
-    await axios.put(url, chunk, {
-      headers: {
-        'X-Upload-Token': this.uploadToken,
-        'Content-Type': 'application/octet-stream',
-      },
-      maxBodyLength: Infinity,
-      maxContentLength: Infinity,
-      timeout: 60000, // 60 second timeout per chunk
-    });
+    let attempt = 0;
+
+    while (attempt < CHUNK_MAX_RETRIES) {
+      try {
+        // Don't set Content-Length - browser will set it automatically
+        // Setting it manually causes "Refused to set unsafe header" error
+        await axios.put(url, chunk, {
+          headers: {
+            'X-Upload-Token': this.uploadToken,
+            'Content-Type': 'application/octet-stream',
+          },
+          maxBodyLength: Infinity,
+          maxContentLength: Infinity,
+          timeout: CHUNK_TIMEOUT,
+        });
+        return;
+      } catch (error) {
+        attempt += 1;
+
+        const status = error?.response?.status;
+        const isTimeoutError = error.code === 'ECONNABORTED';
+        const isNetworkError = !error.response;
+        const isRetryableHttp = status === 408 || (status >= 500 && status < 600);
+        const shouldRetry = (isTimeoutError || isNetworkError || isRetryableHttp) && attempt < CHUNK_MAX_RETRIES;
+
+        if (!shouldRetry) {
+          throw error;
+        }
+
+        const delay = RETRY_BASE_DELAY * attempt;
+        if (this.onStatusChange) {
+          this.onStatusChange('receiving', `Chunk ${partNum} gặp lỗi, thử lại (${attempt}/${CHUNK_MAX_RETRIES}) sau ${Math.round(delay / 1000)}s`);
+        }
+
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
   }
 
   async completeUpload() {
