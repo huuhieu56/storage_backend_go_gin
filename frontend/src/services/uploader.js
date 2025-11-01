@@ -6,7 +6,8 @@ const USE_PROXY = import.meta.env.VITE_USE_PROXY === 'true';
 // Use relative URL for Docker (proxied by Nginx) or /api for local dev (proxied by Vite)
 const STORAGE_API_URL = USE_PROXY ? '/api' : '/api';
 
-const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB
+const CHUNK_SIZE = 16 * 1024 * 1024; // 16MB
+const CHUNK_TIMEOUT = 5 * 60 * 1000; // 5 minute timeout per chunk để tránh ngắt khi mạng chậm
 
 console.log('🔧 Storage API Config:', {
   USE_PROXY,
